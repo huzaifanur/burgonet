@@ -1,4 +1,6 @@
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
 use tauri::{
   image::Image,
@@ -13,6 +15,7 @@ pub struct TrayHandles {
   tray_icon: TrayIcon<Wry>,
   status_item: MenuItem<Wry>,
   toggle_item: MenuItem<Wry>,
+  pause_10_item: MenuItem<Wry>,
   alerts_item: MenuItem<Wry>,
   last_icon_status: Mutex<TrackingStatus>,
 }
@@ -61,6 +64,9 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
   let toggle_item = MenuItemBuilder::with_id("toggle", "Resume Tracking")
     .build(app)
     .map_err(|error| error.to_string())?;
+  let pause_10_item = MenuItemBuilder::with_id("pause_10", "Pause for 10 mins")
+    .build(app)
+    .map_err(|error| error.to_string())?;
   let settings_item = MenuItemBuilder::with_id("settings", "Settings...")
     .build(app)
     .map_err(|error| error.to_string())?;
@@ -78,6 +84,7 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
     .items(&[
       &status_item,
       &toggle_item,
+      &pause_10_item,
       &separator_1,
       &settings_item,
       &separator_2,
@@ -103,6 +110,14 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
           TrackingStatus::Active => sidecar::pause(app),
           TrackingStatus::Paused | TrackingStatus::Error => sidecar::resume(app),
         }
+      }
+      "pause_10" => {
+        sidecar::pause(app);
+        let app_clone = app.clone();
+        thread::spawn(move || {
+          thread::sleep(Duration::from_secs(600));
+          sidecar::resume(&app_clone);
+        });
       }
       "settings" => {
         show_main_window(app);
@@ -131,6 +146,7 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
     tray_icon,
     status_item,
     toggle_item,
+    pause_10_item,
     alerts_item,
     last_icon_status: Mutex::new(TrackingStatus::Paused),
   };
@@ -165,6 +181,7 @@ pub fn refresh_tray(app: &AppHandle) {
 
   let _ = handles.status_item.set_text(status_text);
   let _ = handles.toggle_item.set_text(toggle_text);
+  let _ = handles.pause_10_item.set_enabled(status == TrackingStatus::Active);
   if let Ok(mut icon_status) = handles.last_icon_status.lock() {
     if *icon_status != status {
       let _ = handles.tray_icon.set_icon(Some(status_icon(status)));
