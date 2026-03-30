@@ -1,0 +1,57 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.svelte-kit/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+*.pyc
+*.pyo
+*.pyd
+
+# Python packaging / PyInstaller
+build/
+*.spec
+
+# Rust / Tauri
+src-tauri/target/
+
+# Crash / temp artifacts
+*.crash
+*.tmp
