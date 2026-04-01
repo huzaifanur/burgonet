@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -8,9 +9,26 @@ fn main() {
 
   if env::var("PROFILE").as_deref() == Ok("release") {
     bundle_sidecar();
+  } else {
+    ensure_dev_sidecar_resource_dir();
   }
 
   tauri_build::build()
+}
+
+fn ensure_dev_sidecar_resource_dir() {
+  let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("missing manifest dir"));
+  let sidecar_resource_dir = manifest_dir
+    .parent()
+    .expect("missing project root")
+    .join("dist/burgonet-sidecar");
+
+  fs::create_dir_all(&sidecar_resource_dir).unwrap_or_else(|error| {
+    panic!(
+      "failed to create development sidecar resource directory at {}: {error}",
+      sidecar_resource_dir.display()
+    )
+  });
 }
 
 fn bundle_sidecar() {

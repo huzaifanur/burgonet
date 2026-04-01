@@ -64,7 +64,7 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
   let toggle_item = MenuItemBuilder::with_id("toggle", "Resume Tracking")
     .build(app)
     .map_err(|error| error.to_string())?;
-  let pause_10_item = MenuItemBuilder::with_id("pause_10", "Pause for 10 mins")
+  let pause_10_item = MenuItemBuilder::with_id("pause_10", "Pause for 5 mins")
     .build(app)
     .map_err(|error| error.to_string())?;
   let settings_item = MenuItemBuilder::with_id("settings", "Settings...")
@@ -115,7 +115,7 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
         sidecar::pause(app);
         let app_clone = app.clone();
         thread::spawn(move || {
-          thread::sleep(Duration::from_secs(600));
+          thread::sleep(Duration::from_secs(300));
           sidecar::resume(&app_clone);
         });
       }

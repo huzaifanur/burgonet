@@ -2,15 +2,27 @@ mod config;
 mod sidecar;
 mod tray;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use config::{load_config_from_disk, save_config_to_disk, AppConfig};
+#[cfg(target_os = "linux")]
+use gdk::WindowTypeHint;
+#[cfg(target_os = "linux")]
+use gtk::prelude::GtkWindowExt;
 use rfd::FileDialog;
 use serde::Serialize;
 use serde_json::json;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::PhysicalPosition;
+use tauri::PhysicalSize;
 use tauri::State;
+use tauri::WebviewUrl;
+use tauri::WebviewWindowBuilder;
 use tauri::WindowEvent;
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_notification::NotificationExt;
@@ -30,6 +42,8 @@ pub struct AppState {
   pub restart_attempts: Mutex<u8>,
   pub sidecar: Mutex<Option<sidecar::SidecarProcess>>,
   pub shutting_down: Mutex<bool>,
+  pub flash_hide_token: AtomicU64,
+  pub last_flash_at_ms: Mutex<u64>,
 }
 
 impl AppState {
@@ -41,9 +55,14 @@ impl AppState {
       restart_attempts: Mutex::new(0),
       sidecar: Mutex::new(None),
       shutting_down: Mutex::new(false),
+      flash_hide_token: AtomicU64::new(0),
+      last_flash_at_ms: Mutex::new(0),
     }
   }
 }
+
+const FLASH_DURATION_MS: u64 = 900;
+const FLASH_COOLDOWN_MS: u64 = 3000;
 
 #[tauri::command]
 fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
@@ -101,6 +120,63 @@ fn configure_main_window(app: &tauri::AppHandle) -> Result<(), String> {
   }
 
   Ok(())
+}
+
+fn ensure_flash_window(app: &tauri::AppHandle) -> Result<(), String> {
+  if app.get_webview_window("flash").is_some() {
+    return Ok(());
+  }
+
+  let main_window = app
+    .get_webview_window("main")
+    .ok_or_else(|| "main window missing".to_string())?;
+
+  let builder = WebviewWindowBuilder::new(app, "flash", WebviewUrl::App("flash.html".into()))
+    .title("")
+    .visible(false)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focusable(false)
+    .focused(false);
+
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+  ))]
+  let builder = builder.transient_for(&main_window).map_err(|error| error.to_string())?;
+
+  let window = builder.build().map_err(|error| error.to_string())?;
+  apply_flash_window_hints(&window);
+  Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn apply_flash_window_hints(window: &tauri::WebviewWindow) {
+  if let Ok(gtk_window) = window.gtk_window() {
+    gtk_window.set_skip_taskbar_hint(true);
+    gtk_window.set_skip_pager_hint(true);
+    gtk_window.set_accept_focus(false);
+    gtk_window.set_focus_on_map(false);
+    gtk_window.set_keep_above(true);
+    gtk_window.set_decorated(false);
+    gtk_window.set_type_hint(WindowTypeHint::Notification);
+  }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn apply_flash_window_hints(_window: &tauri::WebviewWindow) {}
+
+fn current_time_ms() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|duration| duration.as_millis() as u64)
+    .unwrap_or(0)
 }
 
 pub fn show_main_window(app: &tauri::AppHandle) {
@@ -176,6 +252,42 @@ pub fn increment_alert_count(app: &tauri::AppHandle) {
   }
   tray::refresh_tray(app);
   emit_app_state(app);
+  show_flash(app);
+}
+
+fn show_flash(app: &tauri::AppHandle) {
+  let Some(window) = app.get_webview_window("flash") else { return };
+  let now_ms = current_time_ms();
+  {
+    let state = app.state::<AppState>();
+    let Ok(mut last_flash_at_ms) = state.last_flash_at_ms.lock() else { return };
+    if now_ms.saturating_sub(*last_flash_at_ms) < FLASH_COOLDOWN_MS {
+      return;
+    }
+    *last_flash_at_ms = now_ms;
+  }
+  if let Ok(Some(monitor)) = window.current_monitor().or_else(|_| window.primary_monitor()) {
+    let _ = window.set_position(PhysicalPosition::new(monitor.position().x, monitor.position().y));
+    let _ = window.set_size(PhysicalSize::new(monitor.size().width, monitor.size().height));
+  }
+  apply_flash_window_hints(&window);
+  let _ = window.set_skip_taskbar(true);
+  let _ = window.set_focusable(false);
+  let _ = window.show();
+  let _ = window.set_ignore_cursor_events(true);
+  let _ = app.emit("flash", ());
+  let state = app.state::<AppState>();
+  let token = state.flash_hide_token.fetch_add(1, Ordering::Relaxed) + 1;
+  let app_clone = app.clone();
+  thread::spawn(move || {
+    thread::sleep(Duration::from_millis(FLASH_DURATION_MS));
+    let state = app_clone.state::<AppState>();
+    if state.flash_hide_token.load(Ordering::Relaxed) == token {
+      if let Some(w) = app_clone.get_webview_window("flash") {
+        let _ = w.hide();
+      }
+    }
+  });
 }
 
 pub fn reset_alert_count(app: &tauri::AppHandle) {
@@ -207,6 +319,7 @@ pub fn run() {
       let config = app.state::<AppState>().config.lock().map_err(|_| "config lock poisoned")?.clone();
       sync_autostart(&app_handle, config.app.autostart)?;
       configure_main_window(&app_handle)?;
+      ensure_flash_window(&app_handle)?;
       tray::build_tray(app)?;
       sidecar::start_sidecar(&app_handle)?;
       emit_app_state(&app_handle);
