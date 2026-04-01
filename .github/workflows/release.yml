@@ -13,14 +13,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Preflight Checks
+    uses: ./.github/workflows/release-preflight.yml
+    secrets: inherit
+
   build-release:
     name: Build ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-    defaults:
-      run:
-        shell: bash
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -45,148 +45,17 @@ jobs:
             target: aarch64-apple-darwin
             bundle: dmg
             artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-          package-manager-cache: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0.0" --locked
-
-      - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: ./src-tauri -> target
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Create Python virtual environment
-        run: python -m venv .venv
-
-      - name: Resolve virtualenv Python path
-        run: |
-          if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            echo "VENV_PY=.venv/Scripts/python.exe" >> "$GITHUB_ENV"
-          else
-            echo "VENV_PY=.venv/bin/python" >> "$GITHUB_ENV"
-          fi
-
-      - name: Install Python dependencies
-        run: |
-          "$VENV_PY" -m pip install --upgrade pip
-          "$VENV_PY" -m pip install -r src-sidecar/requirements.txt pyinstaller pytest
-
-      - name: Verify tag matches app version
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-          TAURI_VERSION="$(python - <<'PY'
-          import json
-          with open('src-tauri/tauri.conf.json', 'r', encoding='utf-8') as handle:
-              print(json.load(handle)['version'])
-          PY
-          )"
-          CARGO_VERSION="$(python - <<'PY'
-          import tomllib
-          with open('src-tauri/Cargo.toml', 'rb') as handle:
-              print(tomllib.load(handle)['package']['version'])
-          PY
-          )"
-
-          test "${TAG_VERSION}" = "${PACKAGE_VERSION}"
-          test "${TAG_VERSION}" = "${TAURI_VERSION}"
-          test "${TAG_VERSION}" = "${CARGO_VERSION}"
-
-      - name: Run checks
-        run: |
-          npm run check
-          "$VENV_PY" -m pytest -q
-          cargo check --manifest-path src-tauri/Cargo.toml --target "${{ matrix.target }}"
-
-      - name: Build release bundle
-        run: npm run tauri -- build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
-
-      - name: Collect release artifacts
-        run: |
-          mkdir -p release-assets
-          shopt -s nullglob
-          files=( ${{ matrix.artifact_glob }} )
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No artifacts matched pattern: ${{ matrix.artifact_glob }}"
-            exit 1
-          fi
-
-          for file in "${files[@]}"; do
-            base="$(basename "$file")"
-            ext=""
-            stem="$base"
-            if [[ "$base" == *.* ]]; then
-              ext=".${base##*.}"
-              stem="${base%$ext}"
-            fi
-            cp "$file" "release-assets/${stem}-${{ matrix.target }}${ext}"
-          done
-
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ matrix.target }}
-          path: release-assets/*
-          if-no-files-found: error
+    uses: ./.github/workflows/release-build.yml
+    with:
+      label: ${{ matrix.label }}
+      os: ${{ matrix.os }}
+      target: ${{ matrix.target }}
+      bundle: ${{ matrix.bundle }}
+      artifact_glob: ${{ matrix.artifact_glob }}
+    secrets: inherit
 
   publish-release:
     name: Publish Release
-    runs-on: ubuntu-22.04
     needs: build-release
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
-    steps:
-      - name: Download built artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: release-assets
-          pattern: release-*
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd release-assets
-          sha256sum * > SHA256SUMS.txt
-
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Burgonet ${{ github.ref_name }}
-          generate_release_notes: true
-          files: |
-            release-assets/*
+    uses: ./.github/workflows/release-publish.yml
+    secrets: inherit

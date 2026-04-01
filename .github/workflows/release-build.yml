@@ -1,0 +1,120 @@
+name: Release Build
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+      bundle:
+        required: true
+        type: string
+      artifact_glob:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ${{ inputs.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.target }}
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Create Python virtual environment
+        run: python -m venv .venv
+
+      - name: Resolve virtualenv Python path
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            echo "VENV_PY=.venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          else
+            echo "VENV_PY=.venv/bin/python" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          "$VENV_PY" -m pip install --upgrade pip
+          "$VENV_PY" -m pip install -r src-sidecar/requirements.txt pyinstaller pytest
+
+      - name: Build release bundle
+        run: npm run tauri -- build --target "${{ inputs.target }}" --bundles "${{ inputs.bundle }}"
+
+      - name: Collect release artifacts
+        run: |
+          mkdir -p release-assets
+          shopt -s nullglob
+          files=( ${{ inputs.artifact_glob }} )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No artifacts matched pattern: ${{ inputs.artifact_glob }}"
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            base="$(basename "$file")"
+            ext=""
+            stem="$base"
+            if [[ "$base" == *.* ]]; then
+              ext=".${base##*.}"
+              stem="${base%$ext}"
+            fi
+            cp "$file" "release-assets/${stem}-${{ inputs.target }}${ext}"
+          done
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ inputs.target }}
+          path: release-assets/*
+          if-no-files-found: error
+          compression-level: 0
