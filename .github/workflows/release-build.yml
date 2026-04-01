@@ -24,6 +24,7 @@ jobs:
     runs-on: ${{ inputs.os }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      TAURI_CLI_VERSION: "^2.0.0"
     defaults:
       run:
         shell: bash
@@ -60,13 +61,25 @@ jobs:
         with:
           targets: ${{ inputs.target }}
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0.0" --locked
-
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+
+      - name: Cache Tauri CLI
+        id: cache-tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/bin/cargo-tauri.exe
+            ~/.cargo/.crates2.json
+            ~/.cargo/.crates.toml
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cli-${{ env.TAURI_CLI_VERSION }}
+
+      - name: Install Tauri CLI
+        if: steps.cache-tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "${TAURI_CLI_VERSION}" --locked
 
       - name: Install frontend dependencies
         run: npm ci
@@ -85,7 +98,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           "$VENV_PY" -m pip install --upgrade pip
-          "$VENV_PY" -m pip install -r src-sidecar/requirements.txt pyinstaller pytest
+          "$VENV_PY" -m pip install -r src-sidecar/requirements.txt pyinstaller
 
       - name: Build release bundle
         run: npm run tauri -- build --target "${{ inputs.target }}" --bundles "${{ inputs.bundle }}"
