@@ -22,13 +22,13 @@
   .row {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
+    gap: 8px;
   }
 
   button {
-    min-height: 36px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.88);
+    min-height: 40px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.84);
     border: 1px solid var(--fg-line);
     color: var(--fg-text);
     font-size: 0.82rem;
@@ -40,9 +40,14 @@
       color 120ms ease;
   }
 
+  button:hover {
+    transform: translateY(-1px);
+    background: var(--fg-surface-strong);
+  }
+
   button.selected {
     background: var(--fg-accent);
-    border-color: transparent;
+    border-color: rgba(0, 0, 0, 0.02);
     color: white;
   }
 </style>

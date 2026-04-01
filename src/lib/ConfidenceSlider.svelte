@@ -35,10 +35,10 @@
 <style>
   .field {
     display: grid;
-    gap: 8px;
-    padding: 11px 12px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.72);
+    gap: 10px;
+    padding: 14px;
+    border-radius: 14px;
+    background: var(--fg-panel);
     border: 1px solid var(--fg-line);
   }
 
@@ -62,10 +62,10 @@
   }
 
   input {
-    min-height: 40px;
-    border-radius: 9px;
+    min-height: 44px;
+    border-radius: 12px;
     border: 1px solid var(--fg-line);
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--fg-surface-strong);
     color: var(--fg-text);
     padding: 0 12px;
     font: inherit;
