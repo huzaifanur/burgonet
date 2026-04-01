@@ -1,7 +1,9 @@
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
 use tauri::{
+  image::Image,
   menu::{MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem},
   tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
   App, AppHandle, Manager, Wry,
@@ -10,11 +12,48 @@ use tauri::{
 use crate::{show_main_window, sidecar, AppState, TrackingStatus};
 
 pub struct TrayHandles {
-  _tray_icon: TrayIcon<Wry>,
+  tray_icon: TrayIcon<Wry>,
   status_item: MenuItem<Wry>,
   toggle_item: MenuItem<Wry>,
   pause_10_item: MenuItem<Wry>,
   alerts_item: MenuItem<Wry>,
+  last_icon_status: Mutex<TrackingStatus>,
+}
+
+fn status_icon(status: TrackingStatus) -> Image<'static> {
+  let (red, green, blue) = match status {
+    TrackingStatus::Active => (18, 168, 109),
+    TrackingStatus::Paused => (220, 175, 46),
+    TrackingStatus::Error => (213, 66, 90),
+  };
+
+  let size = 32u32;
+  let radius = 10.5f32;
+  let center = (size as f32 - 1.0) / 2.0;
+  let mut rgba = vec![0u8; (size * size * 4) as usize];
+
+  for y in 0..size {
+    for x in 0..size {
+      let dx = x as f32 - center;
+      let dy = y as f32 - center;
+      let distance = (dx * dx + dy * dy).sqrt();
+      let index = ((y * size + x) * 4) as usize;
+
+      if distance <= radius {
+        rgba[index] = red;
+        rgba[index + 1] = green;
+        rgba[index + 2] = blue;
+        rgba[index + 3] = 255;
+      } else if distance <= radius + 1.3 {
+        rgba[index] = (red as f32 * 0.7) as u8;
+        rgba[index + 1] = (green as f32 * 0.7) as u8;
+        rgba[index + 2] = (blue as f32 * 0.7) as u8;
+        rgba[index + 3] = 120;
+      }
+    }
+  }
+
+  Image::new_owned(rgba, size, size)
 }
 
 pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
@@ -57,12 +96,7 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
   let tray_icon = TrayIconBuilder::with_id("main")
-    .icon(
-      app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| "default window icon missing".to_string())?,
-    )
+    .icon(status_icon(TrackingStatus::Paused))
     .menu(&menu)
     .show_menu_on_left_click(false)
     .on_menu_event(|app: &AppHandle<Wry>, event| match event.id().as_ref() {
@@ -109,11 +143,12 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
   let handles = TrayHandles {
-    _tray_icon: tray_icon,
+    tray_icon,
     status_item,
     toggle_item,
     pause_10_item,
     alerts_item,
+    last_icon_status: Mutex::new(TrackingStatus::Paused),
   };
 
   app.manage(handles);
@@ -147,6 +182,12 @@ pub fn refresh_tray(app: &AppHandle) {
   let _ = handles.status_item.set_text(status_text);
   let _ = handles.toggle_item.set_text(toggle_text);
   let _ = handles.pause_10_item.set_enabled(status == TrackingStatus::Active);
+  if let Ok(mut icon_status) = handles.last_icon_status.lock() {
+    if *icon_status != status {
+      let _ = handles.tray_icon.set_icon(Some(status_icon(status)));
+      *icon_status = status;
+    }
+  }
   let _ = handles
     .alerts_item
     .set_text(format!("Session alerts: {session_alerts}"));
