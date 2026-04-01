@@ -59,7 +59,7 @@
 <style>
   .stack {
     display: grid;
-    gap: 10px;
+    gap: 12px;
   }
 
   .field {
@@ -70,12 +70,12 @@
   }
 
   select {
-    min-height: 42px;
-    border-radius: 10px;
+    min-height: 44px;
+    border-radius: 12px;
     border: 1px solid var(--fg-line);
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--fg-surface-strong);
     color: var(--fg-text);
-    padding: 0 12px;
+    padding: 0 14px;
     font: inherit;
   }
 
@@ -85,13 +85,18 @@
   }
 
   button {
-    min-height: 40px;
-    border-radius: 10px;
+    min-height: 44px;
+    border-radius: 12px;
     border: 1px solid var(--fg-line);
-    background: var(--fg-surface-strong);
+    background: rgba(255, 255, 255, 0.72);
     color: var(--fg-text);
     font: inherit;
     font-weight: 700;
+  }
+
+  button:hover {
+    transform: translateY(-1px);
+    background: var(--fg-surface-strong);
   }
 
   p {

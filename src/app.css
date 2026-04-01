@@ -1,16 +1,21 @@
 :root {
   color-scheme: light;
-  --fg-bg: #f3edf8;
-  --fg-surface: rgba(255, 255, 255, 0.9);
+  --fg-bg: #e8ecef;
+  --fg-bg-muted: #dde3e8;
+  --fg-surface: rgba(248, 250, 252, 0.94);
   --fg-surface-strong: #ffffff;
-  --fg-line: rgba(123, 96, 165, 0.16);
-  --fg-line-strong: rgba(123, 96, 165, 0.28);
-  --fg-text: #20162f;
-  --fg-muted: #6d5f80;
-  --fg-accent: #8f70c8;
-  --fg-accent-soft: #ede5fb;
-  --fg-success: #0d9f68;
-  --fg-shadow: 0 24px 70px rgba(56, 32, 88, 0.12);
+  --fg-panel: rgba(240, 244, 247, 0.94);
+  --fg-panel-strong: #e8eef3;
+  --fg-line: rgba(35, 50, 63, 0.12);
+  --fg-line-strong: rgba(35, 50, 63, 0.24);
+  --fg-text: #15202b;
+  --fg-muted: #5a6977;
+  --fg-accent: #1f5d57;
+  --fg-accent-soft: #d8ebe7;
+  --fg-warning: #8d6519;
+  --fg-danger: #9f433d;
+  --fg-success: #18684f;
+  --fg-shadow: 0 18px 42px rgba(33, 46, 58, 0.10);
   font-family:
     'Plus Jakarta Sans',
     'Segoe UI',
@@ -18,9 +23,8 @@
   line-height: 1.5;
   font-weight: 400;
   background:
-    radial-gradient(circle at top left, rgba(173, 143, 224, 0.24), transparent 26%),
-    radial-gradient(circle at 85% 15%, rgba(121, 190, 255, 0.16), transparent 22%),
-    linear-gradient(180deg, #fbf8ff 0%, #f2edf8 100%);
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 24%),
+    linear-gradient(180deg, #edf1f4 0%, #e2e8ed 100%);
   color: var(--fg-text);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -42,14 +46,37 @@ body,
 body {
   min-width: 320px;
   overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.62), transparent 34%),
+    linear-gradient(180deg, var(--fg-bg) 0%, var(--fg-bg-muted) 100%);
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
 button {
   border: 0;
   cursor: pointer;
+}
+
+button,
+input,
+select {
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 0;
+  border-color: rgba(31, 93, 87, 0.42);
+  box-shadow: 0 0 0 3px rgba(31, 93, 87, 0.16);
 }
