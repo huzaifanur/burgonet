@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 import cv2
 import numpy as np
@@ -26,13 +27,15 @@ class CameraManager:
         self.config = config
         self.capture: cv2.VideoCapture | None = None
 
-    def device_path(self) -> Path:
+    def device_path(self) -> Path | None:
+        if not sys.platform.startswith("linux"):
+            return None
         return Path(f"/dev/video{self.config.device_index}")
 
     def open(self) -> None:
         self.release()
         device_path = self.device_path()
-        if not device_path.exists():
+        if device_path is not None and not device_path.exists():
             raise CameraUnavailableError(
                 f"Camera device {device_path} not found",
                 reason="missing",

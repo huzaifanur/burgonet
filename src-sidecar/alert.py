@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from math import pi
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -73,7 +74,13 @@ def write_wave_file(path: Path, buffer: np.ndarray) -> None:
 
 def player_commands(audio_path: Path) -> list[list[str]]:
     commands: list[list[str]] = []
-    if audio_path.suffix.lower() == ".wav":
+    system = platform.system()
+
+    if system == "Windows":
+        candidates = windows_player_candidates(audio_path)
+    elif system == "Darwin":
+        candidates = macos_player_candidates(audio_path)
+    elif audio_path.suffix.lower() == ".wav":
         candidates = (
             ("pw-play", ["pw-play", str(audio_path)]),
             ("paplay", ["paplay", str(audio_path)]),
@@ -88,6 +95,32 @@ def player_commands(audio_path: Path) -> list[list[str]]:
             commands.append(command)
 
     return commands
+
+
+def macos_player_candidates(audio_path: Path) -> tuple[tuple[str, list[str]], ...]:
+    primary = ("afplay", ["afplay", str(audio_path)])
+    ffplay = ("ffplay", ["ffplay", "-v", "error", "-nodisp", "-autoexit", str(audio_path)])
+    return (primary, ffplay)
+
+
+def windows_player_candidates(audio_path: Path) -> tuple[tuple[str, list[str]], ...]:
+    escaped_path = str(audio_path).replace("'", "''")
+    ffplay = ("ffplay", ["ffplay", "-v", "error", "-nodisp", "-autoexit", str(audio_path)])
+
+    if audio_path.suffix.lower() != ".wav":
+        return (ffplay,)
+
+    powershell = (
+        "powershell",
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"(New-Object Media.SoundPlayer '{escaped_path}').PlaySync();",
+        ],
+    )
+    return (powershell, ffplay)
 
 
 @dataclass(slots=True)

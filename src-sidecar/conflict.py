@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 
 
-def identify_conflicting_process(device_path: str = "/dev/video0") -> str | None:
+def identify_conflicting_process(device_path: str | None = "/dev/video0") -> str | None:
+    if not sys.platform.startswith("linux") or not device_path:
+        return None
+
     target = Path(device_path)
     current_pid = os.getpid()
 

@@ -45,6 +45,42 @@ def test_mp3_custom_audio_prefers_ffplay_only(monkeypatch) -> None:
     assert commands == [["ffplay", "-v", "error", "-nodisp", "-autoexit", "/tmp/alert.mp3"]]
 
 
+def test_macos_audio_prefers_afplay(monkeypatch) -> None:
+    installed = {"afplay", "ffplay"}
+    monkeypatch.setattr("alert.platform.system", lambda: "Darwin")
+    monkeypatch.setattr("alert.shutil.which", lambda binary: f"/usr/bin/{binary}" if binary in installed else None)
+    commands = player_commands(Path("/tmp/alert.wav"))
+    assert commands == [
+        ["afplay", "/tmp/alert.wav"],
+        ["ffplay", "-v", "error", "-nodisp", "-autoexit", "/tmp/alert.wav"],
+    ]
+
+
+def test_windows_audio_uses_powershell_for_wav(monkeypatch) -> None:
+    installed = {"powershell", "ffplay"}
+    monkeypatch.setattr("alert.platform.system", lambda: "Windows")
+    monkeypatch.setattr("alert.shutil.which", lambda binary: f"C:/Windows/System32/{binary}" if binary in installed else None)
+    commands = player_commands(Path("C:/tmp/alert.wav"))
+    assert commands == [
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(New-Object Media.SoundPlayer 'C:/tmp/alert.wav').PlaySync();",
+        ],
+        ["ffplay", "-v", "error", "-nodisp", "-autoexit", "C:/tmp/alert.wav"],
+    ]
+
+
+def test_windows_mp3_falls_back_to_ffplay(monkeypatch) -> None:
+    installed = {"powershell", "ffplay"}
+    monkeypatch.setattr("alert.platform.system", lambda: "Windows")
+    monkeypatch.setattr("alert.shutil.which", lambda binary: f"C:/Windows/System32/{binary}" if binary in installed else None)
+    commands = player_commands(Path("C:/tmp/alert.mp3"))
+    assert commands == [["ffplay", "-v", "error", "-nodisp", "-autoexit", "C:/tmp/alert.mp3"]]
+
+
 def test_supported_audio_file_recognizes_wav_and_mp3() -> None:
     assert is_supported_audio_file("/tmp/alert.wav") is True
     assert is_supported_audio_file("/tmp/alert.mp3") is True

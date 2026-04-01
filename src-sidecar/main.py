@@ -250,8 +250,9 @@ def handle_command(state: RuntimeState, payload: dict[str, Any]) -> None:
 
 def attempt_camera_recovery(state: RuntimeState, error: CameraUnavailableError) -> None:
     retry_interval = state.config.raw["camera_conflict"]["retry_interval_sec"]
-    process_name = identify_conflicting_process(str(state.camera.device_path()))
-    reason = "conflict" if process_name else error.reason
+    device_path = state.camera.device_path()
+    process_name = identify_conflicting_process(str(device_path) if device_path else None)
+    reason = "conflict" if process_name or (error.reason == "busy" and error.recoverable) else error.reason
     state.camera_available = False
     state.status_state = "paused" if (state.manually_paused or reason == "conflict") else "error"
     state.proximity.reset()

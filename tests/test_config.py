@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from config import DEFAULT_CONFIG, RuntimeConfig, normalize_config
+from conflict import identify_conflicting_process
 
 
 def test_normalize_config_clamps_alert_values() -> None:
@@ -45,3 +46,8 @@ def test_normalize_config_keeps_valid_custom_sound_selection() -> None:
     config = normalize_config({"alert": {"sound": path, "custom_sound_paths": [path, path, "/tmp/not-audio.txt"]}})
     assert config["alert"]["sound"] == path
     assert config["alert"]["custom_sound_paths"] == [path]
+
+
+def test_conflict_detection_is_disabled_off_linux(monkeypatch) -> None:
+    monkeypatch.setattr("conflict.sys.platform", "win32")
+    assert identify_conflicting_process("ignored") is None

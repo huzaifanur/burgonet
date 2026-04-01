@@ -7,6 +7,16 @@
     "flash"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/burgonet-sidecar",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
   ]
 }

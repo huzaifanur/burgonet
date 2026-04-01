@@ -13,15 +13,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-linux:
-    name: Build Linux Release
-    runs-on: ubuntu-22.04
+  build-release:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle: deb
+            artifact_glob: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+          - label: Windows x64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            artifact_glob: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          - label: macOS Intel
+            os: macos-13
+            target: x86_64-apple-darwin
+            bundle: dmg
+            artifact_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          - label: macOS Apple Silicon
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundle: dmg
+            artifact_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -44,6 +72,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
@@ -56,17 +86,35 @@ jobs:
       - name: Create Python virtual environment
         run: python -m venv .venv
 
+      - name: Resolve virtualenv Python path
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            echo "VENV_PY=.venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          else
+            echo "VENV_PY=.venv/bin/python" >> "$GITHUB_ENV"
+          fi
+
       - name: Install Python dependencies
         run: |
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install -r src-sidecar/requirements.txt pyinstaller pytest
+          "$VENV_PY" -m pip install --upgrade pip
+          "$VENV_PY" -m pip install -r src-sidecar/requirements.txt pyinstaller pytest
 
       - name: Verify tag matches app version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#V}"
-          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
-          TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          CARGO_VERSION="$(python -c "import tomllib; print(tomllib.load(open('src-tauri/Cargo.toml', 'rb'))['package']['version'])")"
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          TAURI_VERSION="$(python - <<'PY'
+          import json
+          with open('src-tauri/tauri.conf.json', 'r', encoding='utf-8') as handle:
+              print(json.load(handle)['version'])
+          PY
+          )"
+          CARGO_VERSION="$(python - <<'PY'
+          import tomllib
+          with open('src-tauri/Cargo.toml', 'rb') as handle:
+              print(tomllib.load(handle)['package']['version'])
+          PY
+          )"
 
           test "${TAG_VERSION}" = "${PACKAGE_VERSION}"
           test "${TAG_VERSION}" = "${TAURI_VERSION}"
@@ -75,15 +123,57 @@ jobs:
       - name: Run checks
         run: |
           npm run check
-          .venv/bin/python -m pytest -q
-          cargo check --manifest-path src-tauri/Cargo.toml
+          "$VENV_PY" -m pytest -q
+          cargo check --manifest-path src-tauri/Cargo.toml --target "${{ matrix.target }}"
 
-      - name: Build Linux bundle
-        run: npm run tauri -- build --bundles deb
+      - name: Build release bundle
+        run: npm run tauri -- build --target "${{ matrix.target }}" --bundles "${{ matrix.bundle }}"
+
+      - name: Collect release artifacts
+        run: |
+          mkdir -p release-assets
+          shopt -s nullglob
+          files=( ${{ matrix.artifact_glob }} )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No artifacts matched pattern: ${{ matrix.artifact_glob }}"
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            base="$(basename "$file")"
+            ext=""
+            stem="$base"
+            if [[ "$base" == *.* ]]; then
+              ext=".${base##*.}"
+              stem="${base%$ext}"
+            fi
+            cp "$file" "release-assets/${stem}-${{ matrix.target }}${ext}"
+          done
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish Release
+    runs-on: ubuntu-22.04
+    needs: build-release
+
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: release-*
+          merge-multiple: true
 
       - name: Generate checksums
-        working-directory: src-tauri/target/release/bundle/deb
-        run: sha256sum Burgonet_*.deb > SHA256SUMS.txt
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -91,5 +181,4 @@ jobs:
           name: Burgonet ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            src-tauri/target/release/bundle/deb/Burgonet_*.deb
-            src-tauri/target/release/bundle/deb/SHA256SUMS.txt
+            release-assets/*

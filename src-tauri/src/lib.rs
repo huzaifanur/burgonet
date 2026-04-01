@@ -313,6 +313,7 @@ pub fn run() {
     .manage(AppState::new(initial_config))
     .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
     .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_autostart::Builder::new().app_name("Burgonet").build())
     .setup(|app| {
       let app_handle = app.handle().clone();

@@ -51,6 +51,7 @@ build/
 
 # Rust / Tauri
 src-tauri/target/
+src-tauri/binaries/
 
 # Crash / temp artifacts
 *.crash
