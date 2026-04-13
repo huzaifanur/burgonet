@@ -57,13 +57,28 @@ class CameraManager:
         capture.set(cv2.CAP_PROP_FPS, self.config.fps)
         self.capture = capture
 
-    def read(self) -> np.ndarray:
+    def read(self,raw: bool = False) -> np.ndarray:
         if self.capture is None:
             raise CameraUnavailableError("Camera is not open", reason="missing", recoverable=False)
 
         ok, frame = self.capture.read()
+
         if not ok or frame is None:
-            raise CameraUnavailableError("Failed to read frame from camera", reason="stream_lost")
+            if not hasattr(self, "_fail_count"):
+                self._fail_count = 0
+
+            self._fail_count += 1
+
+            #during the warmup time allow some failures without raising an error, as the camera may take a few seconds to start streaming
+            if raw or self._fail_count < 10:
+                return None
+
+            raise CameraUnavailableError(
+                "Failed to read frame from camera",
+                reason="stream_lost"
+            )
+
+        self._fail_count = 0
         return frame
 
     def frame_size(self, frame: np.ndarray) -> tuple[int, int]:
