@@ -322,6 +322,16 @@ def run() -> int:
 
         try:
             state.camera.open()
+            warmup_start = time.monotonic()
+            while True:
+                frame = state.camera.read(raw=True)  #warmup the camera before actually checking the frames.
+                if frame is not None:
+                    break
+                
+                if time.monotonic() - warmup_start > 2:
+                    break
+                
+                time.sleep(0.05)
         except CameraUnavailableError as error:
             attempt_camera_recovery(state, error)
 
