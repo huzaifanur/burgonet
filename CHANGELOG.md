@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.2
+
+- Fixed a Linux startup crash: applying click-through to the not-yet-realized flash overlay aborted the app
+- `make install` now stages the .deb in /tmp so apt's sandbox user can read it
+
 ## v0.2.1
 
 - Replaced the packaged sidecar `simpleaudio` backend with WAV playback through system audio players to avoid native `SIGSEGV` crashes on Ubuntu
