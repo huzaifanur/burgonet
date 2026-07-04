@@ -377,6 +377,13 @@ def run() -> int:
                 current_fps = 0
                 continue
 
+            # CameraManager tolerates a burst of failed reads (camera warmup)
+            # by returning None; skip those instead of feeding None into
+            # detection.
+            if frame is None:
+                time.sleep(0.05)
+                continue
+
             if not first_frame_logged:
                 width, height = state.camera.frame_size(frame)
                 log(f"Frame: {width}x{height}")
