@@ -13,6 +13,8 @@ use config::{load_config_from_disk, save_config_to_disk, AppConfig};
 use gdk::WindowTypeHint;
 #[cfg(target_os = "linux")]
 use gtk::prelude::GtkWindowExt;
+#[cfg(target_os = "linux")]
+use gtk::prelude::WidgetExt;
 use rfd::FileDialog;
 use serde::Serialize;
 use serde_json::json;
@@ -171,6 +173,12 @@ fn apply_flash_window_hints(window: &tauri::WebviewWindow) {
     gtk_window.set_keep_above(true);
     gtk_window.set_decorated(false);
     gtk_window.set_type_hint(WindowTypeHint::Notification);
+    // Realize so the GdkWindow exists before set_ignore_cursor_events: tao's
+    // CursorIgnoreEvents handler unwraps the GdkWindow and aborts the whole
+    // app if the window has never been realized.
+    if !gtk_window.is_realized() {
+      gtk_window.realize();
+    }
   }
 }
 
