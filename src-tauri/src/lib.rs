@@ -44,6 +44,7 @@ pub struct AppState {
   pub shutting_down: Mutex<bool>,
   pub flash_hide_token: AtomicU64,
   pub last_flash_at_ms: Mutex<u64>,
+  pub pause_timer_generation: AtomicU64,
 }
 
 impl AppState {
@@ -57,6 +58,7 @@ impl AppState {
       shutting_down: Mutex::new(false),
       flash_hide_token: AtomicU64::new(0),
       last_flash_at_ms: Mutex::new(0),
+      pause_timer_generation: AtomicU64::new(0),
     }
   }
 }
@@ -153,6 +155,9 @@ fn ensure_flash_window(app: &tauri::AppHandle) -> Result<(), String> {
 
   let window = builder.build().map_err(|error| error.to_string())?;
   apply_flash_window_hints(&window);
+  // The overlay covers the screen while visible; it must never intercept
+  // clicks, even if the compositor maps it before the first flash.
+  let _ = window.set_ignore_cursor_events(true);
   Ok(())
 }
 
@@ -270,10 +275,14 @@ fn show_flash(app: &tauri::AppHandle) {
     let _ = window.set_position(PhysicalPosition::new(monitor.position().x, monitor.position().y));
     let _ = window.set_size(PhysicalSize::new(monitor.size().width, monitor.size().height));
   }
-  apply_flash_window_hints(&window);
-  let _ = window.set_skip_taskbar(true);
-  let _ = window.set_focusable(false);
+  // show_flash runs on sidecar reader threads; GTK is main-thread-only.
+  let hint_window = window.clone();
+  let _ = window.run_on_main_thread(move || apply_flash_window_hints(&hint_window));
+  let _ = window.set_ignore_cursor_events(true);
   let _ = window.show();
+  // Re-assert after show: on GTK the input region can only stick once the
+  // window is mapped, and it must never swallow clicks meant for windows
+  // underneath.
   let _ = window.set_ignore_cursor_events(true);
   let _ = app.emit("flash", ());
   let state = app.state::<AppState>();

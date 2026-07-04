@@ -34,6 +34,26 @@
   let previewZone = $state<PreviewZonePayload | null>(null)
   let fingertips = $state<PreviewPointPayload[]>([])
   let statusDetail = $state('Camera feed will appear here when tracking starts.')
+  let stageWidth = $state(0)
+  let stageHeight = $state(0)
+
+  // The frame fills the stage like `object-fit: cover`. Zone and fingertip
+  // coordinates are normalized to the frame, so overlays must be laid out in
+  // the frame's (possibly cropped) rect, not the stage box.
+  let canvasRect = $derived.by(() => {
+    if (!stageWidth || !stageHeight || !previewWidth || !previewHeight) {
+      return null
+    }
+    const scale = Math.max(stageWidth / previewWidth, stageHeight / previewHeight)
+    const width = previewWidth * scale
+    const height = previewHeight * scale
+    return {
+      left: (stageWidth - width) / 2,
+      top: (stageHeight - height) / 2,
+      width,
+      height,
+    }
+  })
 
   onMount(() => {
     let cleanup = () => {}
@@ -298,13 +318,26 @@
         </div>
 
         <div class="stage-shell">
-          <div class="stage">
-            {#if previewSrc}
-              <img
-                class="preview-image"
-                src={`data:image/jpeg;base64,${previewSrc}`}
-                alt="Live camera preview"
-              />
+          <div class="stage" bind:clientWidth={stageWidth} bind:clientHeight={stageHeight}>
+            {#if previewSrc && canvasRect}
+              <div
+                class="stage-canvas"
+                style={`left:${canvasRect.left}px;top:${canvasRect.top}px;width:${canvasRect.width}px;height:${canvasRect.height}px;`}
+              >
+                <img
+                  class="preview-image"
+                  src={`data:image/jpeg;base64,${previewSrc}`}
+                  alt="Live camera preview"
+                />
+
+                {#if displayZone}
+                  <div class="zone-box" style={zoneStyle(displayZone)}></div>
+                {/if}
+
+                {#each fingertips as point, index (index)}
+                  <span class:active={point.active} class="finger-dot" style={pointStyle(point)}></span>
+                {/each}
+              </div>
             {:else}
               <div class="preview-placeholder">
                 <strong>Waiting for camera frames</strong>
@@ -319,14 +352,6 @@
                 <span class:warning={handInZone}>Zone {handInZone ? 'breached' : 'clear'}</span>
               </div>
             </div>
-
-            {#if displayZone}
-              <div class="zone-box" style={zoneStyle(displayZone)}></div>
-            {/if}
-
-            {#each fingertips as point, index (index)}
-              <span class:active={point.active} class="finger-dot" style={pointStyle(point)}></span>
-            {/each}
 
             <div class="stage-overlay">
               <div class="status-banner" data-state={statusTone}>
@@ -783,6 +808,10 @@
     min-height: clamp(300px, 48vh, 520px);
   }
 
+  .stage-canvas {
+    position: absolute;
+  }
+
   .preview-image,
   .preview-placeholder {
     position: absolute;
@@ -793,8 +822,6 @@
 
   .preview-image {
     display: block;
-    object-fit: cover;
-    object-position: center;
     background: #d5dde3;
   }
 
@@ -863,22 +890,23 @@
     padding: 12px 14px;
     border-radius: 16px;
     color: white;
-    background: rgba(22, 29, 37, 0.78);
-    backdrop-filter: blur(16px);
+    /* No backdrop-filter here: it sits on the live preview, so the blur would
+       be recomputed on every frame update. */
+    background: rgba(22, 29, 37, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .status-banner[data-state='active'] {
-    background: rgba(19, 84, 66, 0.84);
+    background: rgba(19, 84, 66, 0.92);
   }
 
   .status-banner[data-state='paused'] {
-    background: rgba(103, 77, 24, 0.84);
+    background: rgba(103, 77, 24, 0.92);
   }
 
   .status-banner[data-state='error'],
   .status-banner[data-state='warning'] {
-    background: rgba(117, 46, 42, 0.86);
+    background: rgba(117, 46, 42, 0.92);
   }
 
   .status-banner strong {

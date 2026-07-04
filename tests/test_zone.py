@@ -37,7 +37,9 @@ def test_zone_applies_per_edge_offsets() -> None:
         },
     )
     assert zone is not None
-    assert round(zone.x_min, 2) == 0.24
-    assert round(zone.x_max, 2) == 0.70
+    # The preview is mirrored: display-space "left" pads the image-space right
+    # edge (x_max) and display-space "right" pads the image-space left (x_min).
+    assert round(zone.x_min, 2) == 0.30
+    assert round(zone.x_max, 2) == 0.76
     assert round(zone.y_min, 2) == 0.14
     assert round(zone.y_max, 2) == 0.89

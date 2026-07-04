@@ -15,6 +15,12 @@ class Landmark:
     z: float
 
 
+def to_mp_image(frame: np.ndarray) -> mp.Image:
+    """Convert a BGR camera frame once so both detectors can share it."""
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+
+
 class FaceDetector:
     def __init__(self, confidence: float) -> None:
         self.confidence = confidence
@@ -42,10 +48,8 @@ class FaceDetector:
         self.confidence = confidence
         self._model = self._create_model(confidence)
 
-    def detect(self, frame: np.ndarray, timestamp_ms: int) -> list[Landmark] | None:
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        result = self._model.detect_for_video(mp_image, timestamp_ms)
+    def detect(self, image: mp.Image, timestamp_ms: int) -> list[Landmark] | None:
+        result = self._model.detect_for_video(image, timestamp_ms)
 
         if not result.face_landmarks:
             return None

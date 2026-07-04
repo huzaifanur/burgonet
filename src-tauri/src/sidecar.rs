@@ -462,7 +462,16 @@ fn stop_std_sidecar(process: StdSidecarProcess) {
 }
 
 fn stop_shell_sidecar(process: ShellSidecarProcess) {
-  thread::sleep(Duration::from_secs(2));
+  // The event task clears the child slot on Terminated; wait for that instead
+  // of stalling quit for a fixed 2 seconds.
+  let deadline = std::time::Instant::now() + Duration::from_secs(2);
+  while std::time::Instant::now() < deadline {
+    if process.child.lock().map(|guard| guard.is_none()).unwrap_or(true) {
+      return;
+    }
+    thread::sleep(Duration::from_millis(50));
+  }
+
   if let Ok(mut guard) = process.child.lock() {
     if let Some(child) = guard.take() {
       let _ = child.kill();

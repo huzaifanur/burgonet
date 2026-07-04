@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cv2
 import mediapipe as mp
-import numpy as np
 
 from detection.face import Landmark
 
@@ -36,10 +34,8 @@ class HandDetector:
         self.confidence = confidence
         self._model = self._create_model(confidence)
 
-    def detect(self, frame: np.ndarray, timestamp_ms: int) -> list[list[Landmark]]:
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        result = self._model.detect_for_video(mp_image, timestamp_ms)
+    def detect(self, image: mp.Image, timestamp_ms: int) -> list[list[Landmark]]:
+        result = self._model.detect_for_video(image, timestamp_ms)
         if not result.hand_landmarks:
             return []
 

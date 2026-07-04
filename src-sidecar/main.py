@@ -18,7 +18,7 @@ from alert import AlertEngine
 from camera import CameraConfig, CameraManager, CameraUnavailableError
 from config import RuntimeConfig, normalize_config
 from conflict import identify_conflicting_process
-from detection.face import FaceDetector
+from detection.face import FaceDetector, to_mp_image
 from detection.hands import HandDetector
 from detection.proximity import FINGERTIP_INDICES, ProximityState, is_hand_in_zone
 from detection.zone import calculate_full_face_zone
@@ -153,6 +153,7 @@ class RuntimeState:
     camera_available: bool = True
     status_state: str = "active"
     last_preview_at: float = 0.0
+    camera_reopen_needed: bool = False
 
     def update_status(self, fps: int = 0) -> None:
         emit({"event": "status", "state": self.status_state, "fps": fps})
@@ -232,10 +233,15 @@ def handle_command(state: RuntimeState, payload: dict[str, Any]) -> None:
         return
 
     if command == "update_config":
+        previous_camera = state.config.raw["camera"]
         state.config.merge(payload.get("config", {}))
         state.refresh_models()
         state.refresh_alert_engine()
         state.refresh_camera_config()
+        # The capture device only picks up fps/resolution/device changes on
+        # reopen; flag it so the main loop reopens with the new settings.
+        if state.config.raw["camera"] != previous_camera:
+            state.camera_reopen_needed = True
         emit({"event": "config_updated", "timestamp": utc_now()})
         state.update_status()
         return
@@ -273,6 +279,7 @@ def attempt_camera_recovery(state: RuntimeState, error: CameraUnavailableError) 
         try:
             state.camera.open()
             state.camera_available = True
+            state.camera_reopen_needed = False
             state.status_state = "paused" if state.manually_paused else "active"
             state.proximity.reset()
             emit({"event": "camera_recovered"})
@@ -317,8 +324,12 @@ def run() -> int:
         emit({"event": "model_loaded", "model": "hands"})
 
         last_status_time = 0.0
-        frame_count = 0
-        fps_started_at = time.monotonic()
+        first_frame_logged = False
+        # FPS over a rolling one-second window; a lifetime average goes stale
+        # after any pause or camera loss.
+        fps_window_started_at = time.monotonic()
+        fps_window_frames = 0
+        current_fps = 0
 
         try:
             state.camera.open()
@@ -341,65 +352,68 @@ def run() -> int:
 
             if state.manually_paused:
                 time.sleep(0.05)
+                fps_window_started_at = time.monotonic()
+                fps_window_frames = 0
+                current_fps = 0
                 if time.monotonic() - last_status_time >= 1.0:
                     state.update_status(fps=0)
                     last_status_time = time.monotonic()
                 continue
 
+            if state.camera_reopen_needed:
+                state.camera_reopen_needed = False
+                try:
+                    state.camera.open()
+                except CameraUnavailableError as error:
+                    attempt_camera_recovery(state, error)
+                    continue
+
             try:
                 frame = state.camera.read()
             except CameraUnavailableError as error:
                 attempt_camera_recovery(state, error)
+                fps_window_started_at = time.monotonic()
+                fps_window_frames = 0
+                current_fps = 0
                 continue
 
-            if frame_count == 0:
+            if not first_frame_logged:
                 width, height = state.camera.frame_size(frame)
                 log(f"Frame: {width}x{height}")
+                first_frame_logged = True
 
             now = time.monotonic()
             timestamp_ms = int(now * 1000)
-            face_landmarks = state.face_detector.detect(frame, timestamp_ms)
-            hand_landmarks = state.hand_detector.detect(frame, timestamp_ms)
-
-            if face_landmarks:
-                landmark_count = len(face_landmarks)
-                sample = face_landmarks[152]
-                log(f"Face landmarks: {landmark_count} chin={sample.x:.3f},{sample.y:.3f},{sample.z:.3f}")
-            if hand_landmarks:
-                log(
-                    f"Hands detected: {len(hand_landmarks)} "
-                    f"index_tip={hand_landmarks[0][8].x:.3f},{hand_landmarks[0][8].y:.3f}"
-                )
+            mp_image = to_mp_image(frame)
+            face_landmarks = state.face_detector.detect(mp_image, timestamp_ms)
+            hand_landmarks = state.hand_detector.detect(mp_image, timestamp_ms)
 
             zone = calculate_full_face_zone(face_landmarks, state.config.raw["zone"])
-            if zone:
-                log(
-                    "Zone: "
-                    f"x_min={zone.x_min:.2f} y_min={zone.y_min:.2f} "
-                    f"x_max={zone.x_max:.2f} y_max={zone.y_max:.2f}"
-                )
 
             if state.proximity.update(hand_landmarks, zone, now, state.config.delay_sec):
                 emit({"event": "alert", "timestamp": utc_now()})
                 state.alert_engine.play()
 
-            frame_count += 1
-            elapsed = now - fps_started_at
-            fps = int(frame_count / elapsed) if elapsed > 0 else 0
+            fps_window_frames += 1
+            window_elapsed = now - fps_window_started_at
+            if window_elapsed >= 1.0:
+                current_fps = round(fps_window_frames / window_elapsed)
+                fps_window_frames = 0
+                fps_window_started_at = now
 
             if now - state.last_preview_at >= PREVIEW_INTERVAL_SEC:
                 preview_payload = build_preview_payload(
                     frame,
                     zone,
                     hand_landmarks,
-                    fps,
+                    current_fps,
                 )
                 if preview_payload is not None:
                     emit(preview_payload)
                 state.last_preview_at = now
 
             if now - last_status_time >= 1.0:
-                state.update_status(fps=fps)
+                state.update_status(fps=current_fps)
                 last_status_time = now
 
         emit({"event": "shutdown", "timestamp": utc_now()})

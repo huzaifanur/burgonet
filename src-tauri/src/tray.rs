@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -101,11 +102,10 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
     .show_menu_on_left_click(false)
     .on_menu_event(|app: &AppHandle<Wry>, event| match event.id().as_ref() {
       "toggle" => {
-        let status = *app
-          .state::<AppState>()
-          .status
-          .lock()
-          .unwrap_or_else(|error| error.into_inner());
+        let state = app.state::<AppState>();
+        // A manual toggle supersedes any pending timed resume.
+        state.pause_timer_generation.fetch_add(1, Ordering::Relaxed);
+        let status = *state.status.lock().unwrap_or_else(|error| error.into_inner());
         match status {
           TrackingStatus::Active => sidecar::pause(app),
           TrackingStatus::Paused | TrackingStatus::Error => sidecar::resume(app),
@@ -113,10 +113,18 @@ pub fn build_tray(app: &App<Wry>) -> Result<(), String> {
       }
       "pause_10" => {
         sidecar::pause(app);
+        let generation = app
+          .state::<AppState>()
+          .pause_timer_generation
+          .fetch_add(1, Ordering::Relaxed)
+          + 1;
         let app_clone = app.clone();
         thread::spawn(move || {
           thread::sleep(Duration::from_secs(300));
-          sidecar::resume(&app_clone);
+          let state = app_clone.state::<AppState>();
+          if state.pause_timer_generation.load(Ordering::Relaxed) == generation {
+            sidecar::resume(&app_clone);
+          }
         });
       }
       "settings" => {
