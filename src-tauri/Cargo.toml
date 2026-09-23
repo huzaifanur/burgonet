@@ -1,6 +1,6 @@
 [package]
 name = "burgonet"
-version = "0.2.2"
+version = "0.2.3"
 description = "Burgonet desktop shell"
 authors = ["Codex"]
 license = "MIT"

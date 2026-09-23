@@ -23,7 +23,6 @@ jobs:
   build:
     runs-on: ${{ inputs.os }}
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       TAURI_CLI_VERSION: "^2.0.0"
     defaults:
       run:
@@ -31,7 +30,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -44,14 +43,14 @@ jobs:
             patchelf
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           package-manager-cache: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -68,7 +67,7 @@ jobs:
 
       - name: Cache Tauri CLI
         id: cache-tauri-cli
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-tauri
@@ -121,7 +120,14 @@ jobs:
               ext=".${base##*.}"
               stem="${base%$ext}"
             fi
-            cp "$file" "release-assets/${stem}-${{ inputs.target }}${ext}"
+            # Tauri already embeds the target triple in dmg/appimage names
+            # (e.g. Burgonet_0.2.3_aarch64-apple-darwin.dmg); only append it
+            # when the artifact name does not already identify the platform.
+            if [[ "$base" == *"${{ inputs.target }}"* ]]; then
+              cp "$file" "release-assets/${base}"
+            else
+              cp "$file" "release-assets/${stem}-${{ inputs.target }}${ext}"
+            fi
           done
 
       - name: Upload release artifacts

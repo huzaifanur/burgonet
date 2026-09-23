@@ -57,6 +57,7 @@ fn bundle_sidecar() {
     .expect("missing project root")
     .to_path_buf();
   let pyinstaller = pyinstaller_path(&project_root);
+  let venv_python = venv_python_path(&project_root);
   let data_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
   let add_data = format!("src-sidecar/models{data_separator}models");
   let output_dir = project_root.join("src-tauri/binaries");
@@ -73,9 +74,15 @@ fn bundle_sidecar() {
     panic!("failed to create sidecar output directory at {}: {error}", output_dir.display())
   });
 
-  let status = Command::new(&pyinstaller)
+  // Launch through the venv interpreter, not the pyinstaller script: the
+  // script's shebang embeds the absolute venv path captured at install time,
+  // which breaks (ENOENT) after the project directory is moved — and can
+  // never work when the path contains a space.
+  let status = Command::new(&venv_python)
     .current_dir(&project_root)
     .args([
+      "-m",
+      "PyInstaller",
       "--noconfirm",
       "--clean",
       "--onefile",
@@ -98,6 +105,14 @@ fn bundle_sidecar() {
 
   if !status.success() {
     panic!("PyInstaller sidecar build failed with status {status}");
+  }
+}
+
+fn venv_python_path(project_root: &std::path::Path) -> PathBuf {
+  if cfg!(target_os = "windows") {
+    project_root.join(".venv/Scripts/python.exe")
+  } else {
+    project_root.join(".venv/bin/python")
   }
 }
 

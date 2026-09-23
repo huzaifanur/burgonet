@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.3
+
+- Fixed the flash overlay intermittently swallowing mouse clicks (including the titlebar close button): the overlay now re-applies a fully empty input region every time it maps, instead of tao's click-through which leaves a 1x1 input hole and does not survive Wayland surface remaps
+- Fixed the packaged Windows sidecar crash-looping: `select()` on stdin only works on sockets on Windows, so commands are now read by a background thread feeding a queue
+- Fixed local release builds failing with "failed to launch PyInstaller" after the project directory was moved: PyInstaller now runs through the venv interpreter (`python -m PyInstaller`) instead of its shebang script, which embeds the old install path and cannot handle paths containing spaces
+- Release pipeline: migrated off `ubuntu-22.04` runners (deprecation began September 2026), replaced Node 20-deprecated actions (`actions/cache@v4`, `softprops/action-gh-release@v2`), and dropped the double target suffix from macOS dmg artifact names
+
 ## v0.2.2
 
 - Fixed a Linux startup crash: applying click-through to the not-yet-realized flash overlay aborted the app

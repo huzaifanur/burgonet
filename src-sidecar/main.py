@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import select
+import queue
 import signal
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -27,10 +28,18 @@ PREVIEW_INTERVAL_SEC = 0.35
 PREVIEW_JPEG_QUALITY = 60
 PREVIEW_MAX_EDGE = 720
 
+# select() only works on sockets on Windows, so stdin is drained by a reader
+# thread that pushes parsed commands into this queue; poll_stdin() only reads
+# from the queue and stays cross-platform.
+_command_queue: "queue.Queue[dict[str, Any]]" = queue.Queue()
+_stdout_lock = threading.Lock()
+
 
 def emit(event: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(event) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(event) + "\n"
+    with _stdout_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def log(message: str) -> None:
@@ -119,25 +128,34 @@ def build_preview_payload(
     return payload
 
 
-def poll_stdin() -> list[dict[str, Any]]:
-    if sys.stdin.closed:
-        return []
-
-    ready, _, _ = select.select([sys.stdin], [], [], 0)
-    commands: list[dict[str, Any]] = []
-
-    if not ready:
-        return commands
-
-    line = sys.stdin.readline()
-    if not line:
-        return commands
+def enqueue_stdin_line(line: str) -> None:
+    stripped = line.strip()
+    if not stripped:
+        return
 
     try:
-        commands.append(json.loads(line))
+        _command_queue.put(json.loads(stripped))
     except json.JSONDecodeError:
         emit({"event": "error", "message": "Invalid JSON command"})
-    return commands
+
+
+def _read_stdin_forever() -> None:
+    for line in sys.stdin:
+        enqueue_stdin_line(line)
+
+
+def start_stdin_reader() -> None:
+    thread = threading.Thread(target=_read_stdin_forever, name="burgonet-stdin", daemon=True)
+    thread.start()
+
+
+def poll_stdin() -> list[dict[str, Any]]:
+    commands: list[dict[str, Any]] = []
+    while True:
+        try:
+            commands.append(_command_queue.get_nowait())
+        except queue.Empty:
+            return commands
 
 
 @dataclass(slots=True)
@@ -318,6 +336,7 @@ def run() -> int:
 
     signal.signal(signal.SIGINT, stop_handler)
     signal.signal(signal.SIGTERM, stop_handler)
+    start_stdin_reader()
 
     try:
         emit({"event": "model_loaded", "model": "face_mesh"})

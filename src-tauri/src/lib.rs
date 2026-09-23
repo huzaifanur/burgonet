@@ -157,8 +157,12 @@ fn ensure_flash_window(app: &tauri::AppHandle) -> Result<(), String> {
 
   let window = builder.build().map_err(|error| error.to_string())?;
   apply_flash_window_hints(&window);
+  connect_flash_map_guard(&window);
   // The overlay covers the screen while visible; it must never intercept
-  // clicks, even if the compositor maps it before the first flash.
+  // clicks, even if the compositor maps it before the first flash. On Linux
+  // the GDK-level empty input region is authoritative — tao's
+  // set_ignore_cursor_events would re-punch a 1x1 input hole after it.
+  #[cfg(not(target_os = "linux"))]
   let _ = window.set_ignore_cursor_events(true);
   Ok(())
 }
@@ -173,17 +177,43 @@ fn apply_flash_window_hints(window: &tauri::WebviewWindow) {
     gtk_window.set_keep_above(true);
     gtk_window.set_decorated(false);
     gtk_window.set_type_hint(WindowTypeHint::Notification);
-    // Realize so the GdkWindow exists before set_ignore_cursor_events: tao's
-    // CursorIgnoreEvents handler unwraps the GdkWindow and aborts the whole
-    // app if the window has never been realized.
+    // Realize so the GdkWindow exists before shaping its input region: the
+    // overlay must be click-through from the very first map.
     if !gtk_window.is_realized() {
       gtk_window.realize();
     }
+    apply_empty_input_region(&gtk_window);
   }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn apply_flash_window_hints(_window: &tauri::WebviewWindow) {}
+
+// A truly empty input region. tao's set_ignore_cursor_events combines a 1x1
+// rectangle at the origin, which can still swallow a click; and on Wayland
+// every remap gets a fresh wl_surface whose input region defaults to the full
+// surface, so the overlay would intercept clicks until it is re-applied.
+#[cfg(target_os = "linux")]
+fn apply_empty_input_region(gtk_window: &gtk::ApplicationWindow) {
+  if let Some(gdk_window) = gtk_window.window() {
+    let empty = gdk::cairo::Region::create();
+    gdk_window.input_shape_combine_region(&empty, 0, 0);
+  }
+}
+
+// Re-apply the empty input region every time the overlay maps. GTK does not
+// carry the input shape across unmap/map cycles, so without this the visible
+// overlay can swallow clicks meant for windows underneath it (e.g. the main
+// window's close button) right after a flash.
+#[cfg(target_os = "linux")]
+fn connect_flash_map_guard(window: &tauri::WebviewWindow) {
+  if let Ok(gtk_window) = window.gtk_window() {
+    gtk_window.connect_map(apply_empty_input_region);
+  }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn connect_flash_map_guard(_window: &tauri::WebviewWindow) {}
 
 fn current_time_ms() -> u64 {
   SystemTime::now()
@@ -283,15 +313,19 @@ fn show_flash(app: &tauri::AppHandle) {
     let _ = window.set_position(PhysicalPosition::new(monitor.position().x, monitor.position().y));
     let _ = window.set_size(PhysicalSize::new(monitor.size().width, monitor.size().height));
   }
-  // show_flash runs on sidecar reader threads; GTK is main-thread-only.
-  let hint_window = window.clone();
-  let _ = window.run_on_main_thread(move || apply_flash_window_hints(&hint_window));
-  let _ = window.set_ignore_cursor_events(true);
-  let _ = window.show();
-  // Re-assert after show: on GTK the input region can only stick once the
-  // window is mapped, and it must never swallow clicks meant for windows
-  // underneath.
-  let _ = window.set_ignore_cursor_events(true);
+  // show_flash runs on sidecar reader threads; GTK is main-thread-only. Run
+  // hints + click-through + show in one main-thread closure in that order, so
+  // the overlay is never mapped without an empty input region; the map guard
+  // re-asserts it during show to cover Wayland's fresh-surface remap.
+  let flash_window = window.clone();
+  let _ = window.run_on_main_thread(move || {
+    apply_flash_window_hints(&flash_window);
+    #[cfg(not(target_os = "linux"))]
+    let _ = flash_window.set_ignore_cursor_events(true);
+    let _ = flash_window.show();
+    #[cfg(not(target_os = "linux"))]
+    let _ = flash_window.set_ignore_cursor_events(true);
+  });
   let _ = app.emit("flash", ());
   let state = app.state::<AppState>();
   let token = state.flash_hide_token.fetch_add(1, Ordering::Relaxed) + 1;

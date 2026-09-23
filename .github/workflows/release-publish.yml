@@ -5,9 +5,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-22.04
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download built artifacts
@@ -23,7 +21,7 @@ jobs:
           sha256sum * > SHA256SUMS.txt
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Burgonet ${{ github.ref_name }}
           generate_release_notes: true

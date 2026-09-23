@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from config import DEFAULT_CONFIG, RuntimeConfig, merge_dicts
+from main import enqueue_stdin_line, poll_stdin
 
 
 def test_merge_dicts_overrides_nested_values() -> None:
@@ -19,3 +20,18 @@ def test_runtime_config_clamps_invalid_values() -> None:
     config = RuntimeConfig(raw={"alert": {"confidence_value": 999, "sound": "bogus"}})
     assert config.raw["alert"]["confidence_value"] == 100
     assert config.raw["alert"]["sound"] == "whistle"
+
+
+def test_stdin_queue_drains_pending_commands_in_order() -> None:
+    enqueue_stdin_line(json.dumps({"cmd": "pause"}))
+    enqueue_stdin_line("   \n")
+    enqueue_stdin_line(json.dumps({"cmd": "resume"}))
+
+    assert poll_stdin() == [{"cmd": "pause"}, {"cmd": "resume"}]
+    assert poll_stdin() == []
+
+
+def test_stdin_queue_reports_invalid_json_without_blocking_drain() -> None:
+    enqueue_stdin_line("not-json")
+
+    assert poll_stdin() == []
