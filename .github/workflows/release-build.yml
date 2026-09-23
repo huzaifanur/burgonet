@@ -112,6 +112,11 @@ jobs:
             exit 1
           fi
 
+          # Tauri embeds an arch token in some artifact names (e.g.
+          # Burgonet_0.2.3_aarch64.dmg); only append the full target triple
+          # when the name does not already identify the platform.
+          target_arch="${{ inputs.target }}"
+          target_arch="${target_arch%%-*}"
           for file in "${files[@]}"; do
             base="$(basename "$file")"
             ext=""
@@ -120,10 +125,7 @@ jobs:
               ext=".${base##*.}"
               stem="${base%$ext}"
             fi
-            # Tauri already embeds the target triple in dmg/appimage names
-            # (e.g. Burgonet_0.2.3_aarch64-apple-darwin.dmg); only append it
-            # when the artifact name does not already identify the platform.
-            if [[ "$base" == *"${{ inputs.target }}"* ]]; then
+            if [[ "$base" == *"${target_arch}"* ]]; then
               cp "$file" "release-assets/${base}"
             else
               cp "$file" "release-assets/${stem}-${{ inputs.target }}${ext}"
